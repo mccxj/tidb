@@ -1366,6 +1366,21 @@ func (s *testIntegrationSuite) TestBuiltin(c *C) {
 	result = tk.MustQuery("select cast('-34 100:00:00' as time);")
 	result.Check(testkit.Rows("-838:59:59"))
 
+	// fix issue #4324
+	invalidTimeCastSqls := []string{
+		"select cast('239010' as time);",
+		"select cast('23:90:10' as time);",
+		"select cast('233070' as time);",
+		"select cast('23:30:70' as time);",
+	}
+	for _, invalidTimeCastSql := range invalidTimeCastSqls {
+		rs, err := tk.Exec(invalidTimeCastSql)
+		c.Assert(errors.ErrorStack(err), Equals, "")
+		c.Assert(rs, NotNil)
+		_, err = tidb.GetRows(rs)
+		c.Assert(err.Error(), Equals, "invalid time format")
+	}
+
 	// Fix issue #3691, cast compability.
 	result = tk.MustQuery("select cast('18446744073709551616' as unsigned);")
 	result.Check(testkit.Rows("18446744073709551615"))

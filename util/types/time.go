@@ -973,6 +973,11 @@ func ParseDuration(str string, fsp int) (Duration, error) {
 	if err != nil {
 		return ZeroDuration, errors.Trace(err)
 	}
+	// Invalid TIME values are converted to '00:00:00'
+	// See https://dev.mysql.com/doc/refman/5.7/en/time.html
+	if minute >= 60 || second >= 60 {
+		return ZeroDuration, errors.Trace(ErrInvalidTimeFormat)
+	}
 
 	if overflow {
 		second++
