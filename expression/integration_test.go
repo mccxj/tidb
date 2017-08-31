@@ -1444,6 +1444,37 @@ func (s *testIntegrationSuite) TestOpBuiltin(c *C) {
 	result.Check(testkit.Rows("1 0 -9 -0.001 0.999 <nil> aaa"))
 }
 
+func (s *testIntegrationSuite) TestDatetimeBuiltin(c *C) {
+	defer func() {
+		s.cleanEnv(c)
+		testleak.AfterTest(c)()
+	}()
+	tk := testkit.NewTestKit(c, s.store)
+	tk.MustExec("use test")
+
+	result := tk.MustQuery("select cast('2017-08-01 10:11:12' as datetime), cast('2017-08-01 10:11' as datetime), cast('2017-08-01 10' as datetime)")
+	result.Check(testkit.Rows("2017-08-01 10:11:12 2017-08-01 10:11:00 2017-08-01 10:00:00"))
+	result = tk.MustQuery("select cast('2017-08-01' as datetime), cast('2017-8-1' as datetime), cast('2017-08' as datetime)")
+	result.Check(testkit.Rows("2017-08-01 00:00:00 2017-08-01 00:00:00 <nil>"))
+	result = tk.MustQuery("show warnings")
+	result.Check(testkit.Rows("Warning 1105 invalid time format"))
+	result = tk.MustQuery("select cast('120170801101112' as datetime), cast('20170801101112' as datetime), cast('201708011011' as datetime), cast('2017080110' as datetime)")
+	result.Check(testkit.Rows("<nil> 2017-08-01 10:11:12 <nil> <nil>"))
+	result = tk.MustQuery("show warnings")
+	result.Check(testkit.Rows("Warning 1105 invalid time format", "Warning 1105 invalid time format", "Warning 1105 invalid time format"))
+	result = tk.MustQuery("select cast('20170801' as datetime), cast('201708' as datetime), cast('2017' as datetime)")
+	result.Check(testkit.Rows("2017-08-01 00:00:00 <nil> <nil>"))
+	result = tk.MustQuery("select cast('201708011011129' as datetime), cast('17080110119' as datetime), cast('170801101' as datetime), cast('1708011' as datetime), cast('17082' as datetime)")
+	result.Check(testkit.Rows("2017-08-01 10:11:12 2017-08-01 10:11:09 2017-08-01 10:01:00 2017-08-01 01:00:00 2017-08-02 00:00:00"))
+
+	result = tk.MustQuery("select cast(120170801101112 as datetime), cast(20170801101112 as datetime), cast(201708011011 as datetime), cast(2017080110 as datetime)")
+	result.Check(testkit.Rows("<nil> 2017-08-01 10:11:12 <nil> <nil>"))
+	result = tk.MustQuery("select cast(20170801 as datetime), cast(201708 as datetime), cast(2017 as datetime)")
+	result.Check(testkit.Rows("2017-08-01 00:00:00 <nil> <nil>"))
+	result = tk.MustQuery("select cast(201708011011129 as datetime), cast(17080110119 as datetime), cast(170801101 as datetime), cast(1708011 as datetime), cast(17082 as datetime)")
+	result.Check(testkit.Rows("<nil> <nil> <nil> <nil> <nil>"))
+}
+
 func (s *testIntegrationSuite) TestBuiltin(c *C) {
 	defer func() {
 		s.cleanEnv(c)
