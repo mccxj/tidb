@@ -594,6 +594,91 @@ func splitDateTime(format string) (seps []string, fracStr string) {
 	return
 }
 
+func strToDatetime(str string, fsp int) (Time, error) {
+	var (
+		date [7]int
+		frac string
+
+		err error
+		yearLen  int
+		fieldLen int = 4
+		lastFieldPos int
+		foundSpace int
+		foundDelimitier int
+	)
+
+	start, end  := 0, len(str)
+	rs : = []rune(str)
+	for  ;start != end && unicode.IsSpace(rs[start]); {
+		start++
+	}
+	if start == end || !unicode.IsDigit(rs[start] {
+		return ZeroDatetime, errors.Trace(ErrInvalidTimeFormat)
+	}
+
+	isInternalFormat := false
+	pos := start
+	if pos != end && (unicode.IsSpace(rs[pos] || rs[pos] == 'T') {
+		pos++
+	}
+	if pos == end || rs[pos] == '.' {
+		digits : = pos - start;
+		isInternalFormat = false
+		if digits == 4 || digits == 8 || digits  >= 14 {
+			yearLen = 4
+		} else {
+			yearLen = 2
+		}
+		fieldLen = yearLen
+	}
+	for i:=0; i<7 && start != end && unicode.IsDigit(rs[start];i++ {
+		scanUntilDelim := !isInternalFormat && i != 6 
+		t :=  rs[start++] - '0'
+		for ; start != end && unicode.IsDigit(rs[start]) && (scanUntilDelim || --fieldLen > 0); {
+			t = t * 10 + (rs[start++] - '0')
+		}
+		if t > 999999 {
+			return ZeroDatetime, errors.Trace(ErrInvalidTimeFormat)
+		}
+		date[i] = t
+		fieldLen = 2
+		if start == end {
+			i++
+			lastFieldPos = start
+		}
+		if i== 2 && rs[start] == 'T' {
+			start++
+			lastFieldPos = start
+			continue
+		}
+		if i==5 {
+			if  rs[start] == '.' {
+				start++
+				lastFieldPos = start
+				fieldLen = 6
+			} else if unicode.IsDigit(rs[start]) {
+				i++
+				break
+			}
+			continue
+		}
+
+		for start != end && (unicode.IsPunct(rs[start]) || unicode.IsSpace(rs[start])) {
+			if unicode.IsSpace(rs[start]) {
+				if i==2 {
+				}
+				foundSpace = 1
+			}
+			foundDelimitier = 1
+			start++
+		}
+	}
+	start = lastFieldPos
+	if !isInternalFormat {
+	} else {
+	}
+}
+
 // See https://dev.mysql.com/doc/refman/5.7/en/date-and-time-literals.html.
 func parseDatetime(str string, fsp int) (Time, error) {
 	// Try to split str with delimiter.
