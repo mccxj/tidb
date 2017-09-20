@@ -596,20 +596,20 @@ func splitDateTime(format string) (seps []string, fracStr string) {
 
 func strToDatetime(str string, fsp int) (Time, error) {
 	var (
-		date [7]int
+		date    [7]int
 		dateLen [7]int
 		fracStr string
 
-		err error
-		fieldLen int = 4
+		err          error
+		fieldLen     int = 4
 		lastFieldPos int
 		//foundSpace int
 		//foundDelimitier int
 	)
 
-	start, end  := 0, len(str)
+	start, end := 0, len(str)
 	rs := []rune(str)
-	for  start != end && unicode.IsSpace(rs[start]) {
+	for start != end && unicode.IsSpace(rs[start]) {
 		start++
 	}
 	if start == end || !unicode.IsDigit(rs[start]) {
@@ -618,22 +618,22 @@ func strToDatetime(str string, fsp int) (Time, error) {
 
 	isInternalFormat := false
 	pos := start
-	if pos != end && (unicode.IsSpace(rs[pos]) || rs[pos] == 'T') {
+	for pos != end && (unicode.IsDigit(rs[pos]) || rs[pos] == 'T') {
 		pos++
 	}
 	if pos == end || rs[pos] == '.' {
 		digits := pos - start
 		isInternalFormat = true
-		if digits == 4 || digits == 8 || digits  >= 14 {
+		if digits == 4 || digits == 8 || digits >= 14 {
 			fieldLen = 4
 		} else {
 
 			fieldLen = 2
 		}
 	}
-	for i:=0; i<6 && start != end && unicode.IsDigit(rs[start]);i++ {
+	for i := 0; i < 6 && start != end && unicode.IsDigit(rs[start]); i++ {
 		pos := start
-		t :=  int(rs[start]) - '0'
+		t := int(rs[start]) - '0'
 		start++
 		for start != end && unicode.IsDigit(rs[start]) {
 			if isInternalFormat {
@@ -642,25 +642,25 @@ func strToDatetime(str string, fsp int) (Time, error) {
 					break
 				}
 			}
-			t = t * 10 + (int(rs[start]) - '0')
+			t = t*10 + (int(rs[start]) - '0')
 			start++
 		}
 		if t > 999999 {
 			return ZeroDatetime, errors.Trace(ErrInvalidTimeFormat)
 		}
-		date[i], dateLen[i]  = t, start - pos
+		date[i], dateLen[i] = t, start-pos
 		fieldLen = 2
 		if start == end {
 			lastFieldPos = start
 			break
 		}
-		if i== 2 && rs[start] == 'T' {
+		if i == 2 && rs[start] == 'T' {
 			start++
 			lastFieldPos = start
 			continue
 		}
-		if i==5 {
-			if  rs[start] == '.' {
+		if i == 5 {
+			if rs[start] == '.' {
 				start++
 				lastFieldPos = start
 				fieldLen = 6
@@ -671,20 +671,20 @@ func strToDatetime(str string, fsp int) (Time, error) {
 			continue
 		}
 
-		for start != end && (unicode.IsSymbol(rs[start]) ||unicode.IsPunct(rs[start]) || unicode.IsSpace(rs[start])) {
+		for start != end && (unicode.IsSymbol(rs[start]) || unicode.IsPunct(rs[start]) || unicode.IsSpace(rs[start])) {
 			start++
 		}
 	}
 
 	if dateLen[0] == 2 {
-		if date[0] != 0 || date[1] != 0 || date[2] !=0 || date[3]!=0 || date[4] !=0 || date[5] !=0  {
+		if date[0] != 0 || date[1] != 0 || date[2] != 0 || date[3] != 0 || date[4] != 0 || date[5] != 0 {
 			date[0] = adjustYear(date[0])
 		}
 	}
-	for start = lastFieldPos; start != end  && unicode.IsDigit(rs[start]);start++ {
+	for start = lastFieldPos; start != end && unicode.IsDigit(rs[start]); start++ {
 	}
 	fracStr = str[lastFieldPos:start]
-	microsecond , overflow, err := parseFrac(fracStr, fsp)
+	microsecond, overflow, err := parseFrac(fracStr, fsp)
 	if err != nil {
 		return ZeroDatetime, errors.Trace(err)
 	}
@@ -696,10 +696,10 @@ func strToDatetime(str string, fsp int) (Time, error) {
 		}
 		tmp = FromGoTime(t1.Add(gotime.Second))
 	}
-	nt := Time {
+	nt := Time{
 		Time: tmp,
 		Type: mysql.TypeDatetime,
-		Fsp: fsp}
+		Fsp:  fsp}
 	return nt, nil
 }
 
@@ -1298,8 +1298,8 @@ func ParseTime(str string, tp byte, fsp int) (Time, error) {
 	if err != nil {
 		return Time{Time: ZeroTime, Type: tp}, errors.Trace(err)
 	}
-
-	t, err := parseDatetime(str, fsp)
+	t, err := strToDatetime(str, fsp)
+	//t, err := parseDatetime(str, fsp)
 	if err != nil {
 		return Time{Time: ZeroTime, Type: tp}, errors.Trace(err)
 	}
