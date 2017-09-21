@@ -38,6 +38,31 @@ var (
 	ErrIncorrectDatetimeValue = terror.ClassTypes.New(mysql.ErrTruncatedWrongValue, "Incorrect datetime value: '%s'")
 )
 
+// TimeFlags use to parse datetime/time
+type TimeFlags int
+
+// Flags to str_to_datetime and number_to_datetime
+const (
+	TimeUndefined TimeFlags = 0
+	TimeFuzzyDate TimeFlags = 1 << iota
+	TimeDatetimeOnly
+	TimeNoNsecRounding
+	TimeNoDateFracWarn
+	TimeNoZeroInDate
+	TimeNoZeroDate
+	TimeInvalidDates
+)
+
+// Conversion warnings
+const (
+	MysqlTimeWarnTruncated uint = 1 << iota
+	MysqlTimeWarnOutOfRange
+	MysqlTimeWarnInvalidTimestamp
+	MysqlTimeWarnZeroDate
+	MysqlTimeNoteTruncated
+	MysqlTimeWarnZeroInDate
+)
+
 // Time format without fractional seconds precision.
 const (
 	DateFormat = "2006-01-02"
