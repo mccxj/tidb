@@ -36,12 +36,18 @@ var (
 	ErrInvalidYear            = errors.New("invalid year")
 	ErrZeroDate               = errors.New("datetime zero in date")
 	ErrIncorrectDatetimeValue = terror.ClassTypes.New(mysql.ErrTruncatedWrongValue, "Incorrect datetime value: '%s'")
+	ErrTimeWarnTruncated = errors.New("1")
+         ErrTimeWarnOutOfRang = errors.New("2")
+	ErrTimeWarnInvalidTimestamp = errors.New("3")
+	ErrTimeWarnZeroDate= errors.New("4")
+	ErrTimeNoteTruncated = errors.New("5")
+	ErrTimeWarnZeroInDate = errors.New("6")
 )
 
-// TimeFlags use to parse datetime/time
+// TimeFlags use to parse datetime/time.
 type TimeFlags int
 
-// Flags to str_to_datetime and number_to_datetime
+// Flags to str_to_datetime and number_to_datetime.
 const (
 	TimeUndefined TimeFlags = 0
 	TimeFuzzyDate TimeFlags = 1 << iota
@@ -53,9 +59,12 @@ const (
 	TimeInvalidDates
 )
 
-// Conversion warnings
+// TimeWarn use to indicate the parse waring.
+type TimeWarn int
+
+// Conversion warnings.
 const (
-	MysqlTimeWarnTruncated uint = 1 << iota
+	MysqlTimeWarnTruncated TimeWarn = 1 << iota
 	MysqlTimeWarnOutOfRange
 	MysqlTimeWarnInvalidTimestamp
 	MysqlTimeWarnZeroDate
@@ -71,6 +80,9 @@ const (
 	TimeFSPFormat = "2006-01-02 15:04:05.000000"
 )
 
+P
+P
+P
 const (
 	// MinYear is the minimum for mysql year type.
 	MinYear int16 = 1901
@@ -619,7 +631,8 @@ func splitDateTime(format string) (seps []string, fracStr string) {
 	return
 }
 
-func strToDatetime(str string, fsp int) (Time, error) {
+
+func strToDatetime(str string, fsp int, flags TimeFlags) (Time, error) {
 	var (
 		date    [7]int
 		dateLen [7]int
@@ -628,8 +641,9 @@ func strToDatetime(str string, fsp int) (Time, error) {
 		err          error
 		fieldLen     int = 4
 		lastFieldPos int
-		//foundSpace int
-		//foundDelimitier int
+		foundSpace bool 
+		foundDelimitier bool 
+		i int
 	)
 
 	start, end := 0, len(str)
@@ -638,7 +652,7 @@ func strToDatetime(str string, fsp int) (Time, error) {
 		start++
 	}
 	if start == end || !unicode.IsDigit(rs[start]) {
-		return ZeroDatetime, errors.Trace(ErrInvalidTimeFormat)
+		return ZeroDatetime, errors.Trace(ErrTimeWarnTruncated)
 	}
 
 	isInternalFormat := false
@@ -656,7 +670,7 @@ func strToDatetime(str string, fsp int) (Time, error) {
 			fieldLen = 2
 		}
 	}
-	for i := 0; i < 6 && start != end && unicode.IsDigit(rs[start]); i++ {
+	for i = 0; i < 6 && start != end && unicode.IsDigit(rs[start]); i++ {
 		pos := start
 		t := int(rs[start]) - '0'
 		start++
@@ -671,7 +685,7 @@ func strToDatetime(str string, fsp int) (Time, error) {
 			start++
 		}
 		if t > 999999 {
-			return ZeroDatetime, errors.Trace(ErrInvalidTimeFormat)
+			return ZeroDatetime, errors.Trace(ErrTimeWarnTruncated)
 		}
 		date[i], dateLen[i] = t, start-pos
 		fieldLen = 2
@@ -697,18 +711,30 @@ func strToDatetime(str string, fsp int) (Time, error) {
 		}
 
 		for start != end && (unicode.IsSymbol(rs[start]) || unicode.IsPunct(rs[start]) || unicode.IsSpace(rs[start])) {
+			if unicode.IsSpace(rs[start]) {
+				if i != 2 {
+					return ZeroDatetime, errors.Trace(ErrTimeWarnTruncated)
+				}
+				foundSpace = true
+			}
 			start++
+			foundDelimiter = true
 		}
 	}
 
-	if dateLen[0] == 2 {
-		if date[0] != 0 || date[1] != 0 || date[2] != 0 || date[3] != 0 || date[4] != 0 || date[5] != 0 {
-			date[0] = adjustYear(date[0])
-		}
+	if foundDelimiter && !foundSpace && (flags & TimeDatetimeOnly != 0) {
+		return ZeroDatetime, errors.Trace(ErrTimeWarnTruncated)
 	}
 	for start = lastFieldPos; start != end && unicode.IsDigit(rs[start]); start++ {
 	}
 	fracStr = str[lastFieldPos:start]
+
+	notZeroDate := !(date[0] == 0 && date[1]==0 && date[2]==0 && date[3]==0 && date[4]==0 && date[5]==0 && fracStr == "")
+	if dateLen[0] == 2 {
+		if notZeroDate {
+			date[0] = adjustYear(date[0])
+		}
+	}
 	microsecond, overflow, err := parseFrac(fracStr, fsp)
 	if err != nil {
 		return ZeroDatetime, errors.Trace(err)
