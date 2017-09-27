@@ -1817,6 +1817,40 @@ func (s *testIntegrationSuite) TestBuiltin(c *C) {
 	result = tk.MustQuery(`select cast(cast('2017-01-01 01:01:11.12' as date) as datetime(2));`)
 	result.Check(testkit.Rows("2017-01-01 00:00:00.00"))
 
+	// for int64 to datetime.
+	intToDatetimeTests := []struct {
+		val    int64
+		result string
+		warn   bool
+	}{
+		{0, "0000-00-00 00:00:00", false},
+		{10000101000000, "1000-01-01 00:00:00", false},
+		{691231, "2069-12-31 00:00:00", false},
+		{991231, "1999-12-31 00:00:00", false},
+		{10000100, "1000-01-00 00:00:00", false},
+		{99991231, "9999-12-31 00:00:00", false},
+		{691231235959, "2069-12-31 23:59:59", false},
+		{701231235959, "1970-12-31 23:59:59", false},
+		{991231235959, "1999-12-31 23:59:59", false},
+		{-691231, "<nil>", true},
+		{99999999999999, "<nil>", true},
+		{100000000000000, "<nil>", true},
+		{100, "<nil>", true},
+		{691232, "<nil>", true},
+		{700100, "<nil>", true},
+		{100000000, "<nil>", true},
+		{691231245959, "<nil>", true},
+		{700229235959, "<nil>", true},
+	}
+	for _, t := range intToDatetimeTests {
+		result = tk.MustQuery(fmt.Sprintf("select cast(%d as datetime)", t.val))
+		result.Check(testkit.Rows(t.result))
+		if t.warn {
+			result = tk.MustQuery("show warnings")
+			result.Check(testkit.Rows(fmt.Sprintf("Warning | 1292 | Incorrect datetime value: '%d'", t.val)))
+		}
+	}
+
 	// for ISNULL
 	tk.MustExec("drop table if exists t")
 	tk.MustExec("create table t (a int, b int, c int, d char(10), e datetime, f float, g decimal(10, 3))")
