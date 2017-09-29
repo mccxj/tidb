@@ -51,9 +51,10 @@ const (
 	MinYear int16 = 1901
 	// MaxYear is the maximum for mysql year type.
 	MaxYear int16 = 2155
-
+	//YYPartYear TODO
+	YYPartYear = 70
 	// MinTime is the minimum for mysql time type.
-	MinTime = -gotime.Duration(838*3600+59*60+59) * gotime.Second
+	MinTime = -gotime.Duration(838*3600 + 59*60 + 59) * gotime.Second
 	// MaxTime is the maximum for mysql time type.
 	MaxTime = gotime.Duration(838*3600+59*60+59) * gotime.Second
 	// ZeroDatetimeStr is the string representation of a zero datetime.
@@ -150,6 +151,110 @@ type TimeInternal interface {
 	Microsecond() int
 	GoTime(*gotime.Location) (gotime.Time, error)
 	IsLeapYear() bool
+}
+
+var (
+	ErrTimeWarnOutOfRange = errors.New("MYSQL_TIME_WARN_OUT_OF_RANGE")
+	ErrTimeWarnZeroDate   = errors.New("MYSQL_TIME_WARN_ZERO_DATE")
+	ErrTimeWarnTruncated  = errors.New("MYSQL_TIME_WARN_TRUNCATED")
+)
+
+const (
+	FlagTimeFuzzyDate  = 1 << iota
+	FlagTimeNoZeroDate
+)
+
+/*
+  Convert datetime value specified as number to broken-down TIME
+  representation and form value of DATETIME type as side-effect.
+  SYNOPSIS
+    number_to_datetime()
+      nr         - datetime value as number
+      time_res   - pointer for structure for broken-down representation
+      flags      - flags to use in validating date, as in str_to_datetime()
+      was_cut    0      Value ok
+                 1      If value was cut during conversion
+                 2      check_date(date,flags) considers date invalid
+  DESCRIPTION
+    Convert a datetime value of formats YYMMDD, YYYYMMDD, YYMMDDHHMSS,
+    YYYYMMDDHHMMSS to broken-down MYSQL_TIME representation. Return value in
+    YYYYMMDDHHMMSS format as side-effect.
+    This function also checks if datetime value fits in DATETIME range.
+  RETURN VALUE
+    -1              Timestamp with wrong values
+    anything else   DATETIME as integer in YYYYMMDDHHMMSS format
+    Datetime value in YYYYMMDDHHMMSS format.
+    was_cut         if return value -1: one of
+                      - MYSQL_TIME_WARN_OUT_OF_RANGE
+                      - MYSQL_TIME_WARN_ZERO_DATE
+                      - MYSQL_TIME_WARN_TRUNCATED
+                    otherwise 0.
+*/
+func numberToDatetime(nr int64, flags int) (Time, error) {
+	var (
+		part1 int64
+		part2 int64
+
+		year   int
+		month  int
+		day    int
+		hour   int
+		minute int
+		second int
+	)
+
+	if nr == 0 || nr >= 10000101000000 {
+		if nr > 99999999999999 { /* 9999-99-99 99:99:99 */
+			return ZeroDatetime, ErrTimeWarnOutOfRange
+		}
+		//goto ok;
+	} else if nr < 101 {
+		return ZeroDatetime, ErrTimeWarnTruncated
+	} else if nr <= (YYPartYear-1)*10000+1231 {
+		nr = (nr + 20000000) * 1000000 /* YYMMDD, year: 2000-2069 */
+	} else if (nr < (YYPartYear)*10000+101) {
+		return ZeroDatetime, ErrTimeWarnTruncated
+	} else if nr <= 991231 {
+		nr = (nr + 19000000) * 1000000; /* YYMMDD, year: 1970-1999 */
+	} else if nr < 10000101 && !(flags&FlagTimeFuzzyDate == FlagTimeFuzzyDate) {
+		/*
+Though officially we support DATE values from 1000-01-01 only, one can
+easily insert a value like 1-1-1. So, for consistency reasons such dates
+are allowed when TIME_FUZZY_DATE is set.
+*/
+		return ZeroDatetime, ErrTimeWarnTruncated
+	} else if nr <= 99991231 {
+		nr = nr * 1000000;
+	} else if nr < 101000000 {
+		return ZeroDatetime, ErrTimeWarnTruncated
+	} else if nr <= (YYPartYear-1)*10000000000+1231235959 {
+		nr = nr + 20000000000000; /* YYMMDDHHMMSS, 2000-2069 */
+	} else if nr < YYPartYear*10000000000+101000000 {
+		return ZeroDatetime, ErrTimeWarnTruncated
+	} else if nr <= 991231235959 {
+		nr = nr + 19000000000000 /* YYMMDDHHMMSS, 1970-1999 */
+	}
+
+	part1 = nr / 1000000
+	part2 = nr - part1*1000000
+	year = int(part1 / 10000)
+	part1 %= 10000
+	month = int(part1 / 100)
+	day = int(part1 % 100)
+	hour = int(part2 / 10000)
+	part2 %= 10000
+	minute = int(part2 / 100)
+	second = int(part2 % 100)
+
+	//if (!check_datetime_range(time_res) &&
+	//!check_date(time_res, (nr != 0), flags, was_cut))
+	//return nr;
+
+	/* Don't want to have was_cut get set if TIME_NO_ZERO_DATE was violated. */
+	if nr == 0 && (flags&FlagTimeNoZeroDate == FlagTimeNoZeroDate) {
+		return ZeroDatetime, nil
+	}
+	return ZeroDatetime, ErrTimeWarnTruncated
 }
 
 // FromGoTime translates time.Time to mysql time internal representation.
