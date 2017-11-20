@@ -847,6 +847,9 @@ func (d *ddl) AlterTable(ctx context.Context, ident ast.Ident, specs []*ast.Alte
 
 	for _, spec := range validSpecs {
 		switch spec.Tp {
+		case ast.AlterTableOption:
+			//TODO
+			//err = d.AddColumn(ctx, ident, spec)
 		case ast.AlterTableAddColumns:
 			if len(spec.NewColumns) != 1 {
 				return errRunMultiSchemaChanges
