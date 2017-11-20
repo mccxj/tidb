@@ -97,7 +97,7 @@ func NewAggFunction(funcType string, funcArgs []expression.Expression, distinct 
 	case ast.AggFuncFirstRow:
 		return &firstRowFunction{aggFunction: newAggFunc(tp, funcArgs, distinct)}
 	case ast.AggFuncBitOr:
-		return &bitOrFunction{aggFunction: newAggFunc(tp, funcArgs, distinct)}
+		return &bitOrFunction{aggFunction: newAggFunc(tp, funcArgs, distinct), bitOp: bitOr, defVal: 0}
 	}
 	return nil
 }
@@ -128,7 +128,7 @@ func NewDistAggFunc(expr *tipb.Expr, fieldTps []*types.FieldType, sc *variable.S
 	case tipb.ExprType_First:
 		return &firstRowFunction{aggFunction: newAggFunc(ast.AggFuncFirstRow, args, false)}, nil
 	case tipb.ExprType_AggBitOr:
-		return &bitOrFunction{aggFunction: newAggFunc(ast.AggFuncBitOr, args, false)}, nil
+		return &bitOrFunction{aggFunction: newAggFunc(ast.AggFuncBitOr, args, false), bitOp: bitOr, defVal: 0}, nil
 	}
 	return nil, errors.Errorf("Unknown aggregate function type %v", expr.Tp)
 }

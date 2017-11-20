@@ -22,8 +22,18 @@ import (
 	"github.com/pingcap/tidb/types"
 )
 
+type bitOp byte
+
+const (
+	bitAnd bitOp = iota
+	bitXor
+	bitOr
+)
+
 type bitOrFunction struct {
 	aggFunction
+	bitOp
+	defVal uint64
 }
 
 // Clone implements Aggregation interface.
@@ -41,11 +51,11 @@ func (bf *bitOrFunction) CalculateDefaultValue(schema *expression.Schema, ctx co
 	result := expression.EvaluateExprWithNull(ctx, schema, arg)
 	if con, ok := result.(*expression.Constant); ok {
 		if con.Value.IsNull() {
-			return types.NewDatum(0), true
+			return types.NewDatum(bf.defVal), true
 		}
 		return con.Value, true
 	}
-	return types.NewDatum(0), true
+	return types.NewDatum(bf.defVal), true
 }
 
 // GetType implements Aggregation interface.
@@ -63,7 +73,7 @@ func (bf *bitOrFunction) Update(ctx *AggEvaluateContext, sc *variable.StatementC
 		if len(bf.Args) == 0 {
 			return nil
 		} else if len(bf.Args) != 1 {
-			return errors.New("Wrong number of args for AggFuncBitOr")
+			return errors.New("Wrong number of args for AggFuncBitOp")
 		}
 		a := bf.Args[0]
 		value, err := a.Eval(row)
@@ -71,14 +81,14 @@ func (bf *bitOrFunction) Update(ctx *AggEvaluateContext, sc *variable.StatementC
 			return errors.Trace(err)
 		}
 		if ctx.Value.IsNull() {
-			ctx.Value.SetUint64(0)
+			ctx.Value.SetUint64(bf.defVal)
 		}
 		if !value.IsNull() {
 			ctx.Value.SetUint64(ctx.Value.GetUint64() | value.GetUint64())
 		}
 	} else {
 		if ctx.Value.IsNull() {
-			ctx.Value.SetUint64(0)
+			ctx.Value.SetUint64(bf.defVal)
 		}
 		v := row.GetUint64(0)
 		ctx.Value.SetUint64(ctx.Value.GetUint64() | v)
