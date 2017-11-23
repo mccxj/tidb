@@ -795,6 +795,30 @@ func (d *ddl) CreateTable(ctx context.Context, ident ast.Ident, colDefs []*ast.C
 	return errors.Trace(err)
 }
 
+func (d *ddl) AlterTableOption(ctx context.Context, ti ast.Ident, spec *ast.AlterTableSpec) error {
+	is := d.infoHandle.Get()
+	schema, ok := is.SchemaByName(ti.Schema)
+	if !ok {
+		return errors.Trace(infoschema.ErrDatabaseNotExists)
+	}
+	t, err := is.TableByName(ti.Schema, ti.Name)
+	if err != nil {
+		return errors.Trace(infoschema.ErrTableNotExists.GenByArgs(ti.Schema, ti.Name))
+	}
+	tbInfo := t.Meta()
+	handleTableOptions(options, tbInfo)
+	job := &model.Job{
+		SchemaID:   schema.ID,
+		TableID:    tbInfo.ID,
+		Type:       model.ActionAlterTableOption,
+		BinlogInfo: &model.HistoryInfo{},
+		Args:       []interface{}{tbInfo},
+	}
+	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
+}
+
 // handleAutoIncID handles auto_increment option in DDL. It creates a ID counter for the table and initiates the counter to a proper value.
 // For example if the option sets auto_increment to 10. The counter will be set to 9. So the next allocated ID will be 10.
 func (d *ddl) handleAutoIncID(tbInfo *model.TableInfo, schemaID int64) error {
@@ -848,8 +872,7 @@ func (d *ddl) AlterTable(ctx context.Context, ident ast.Ident, specs []*ast.Alte
 	for _, spec := range validSpecs {
 		switch spec.Tp {
 		case ast.AlterTableOption:
-			//TODO
-			//err = d.AddColumn(ctx, ident, spec)
+			err = d.AlterTableOption(ctx, ident, spec)
 		case ast.AlterTableAddColumns:
 			if len(spec.NewColumns) != 1 {
 				return errRunMultiSchemaChanges
