@@ -985,8 +985,14 @@ func (b *builtinCastStringAsTimeSig) evalTime(row types.Row) (res types.Time, is
 	if isNull || err != nil {
 		return res, isNull, errors.Trace(err)
 	}
-	res, err = types.ParseTime(sc, val, b.tp.Tp, b.tp.Decimal)
+	res, err = types.StrToTime(sc, val, b.tp.Tp, b.tp.Decimal)
 	if err != nil {
+		if types.ErrIncorrectDatetimeValue.Equal(err) {
+			err = sc.HandleTruncate(err)
+			if err == nil {
+				return res, false, nil
+			}
+		}
 		return res, false, errors.Trace(err)
 	}
 	if b.tp.Tp == mysql.TypeDate {

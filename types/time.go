@@ -48,6 +48,7 @@ const (
 )
 
 const (
+	MaxDateParts int = 8
 	// MinYear is the minimum for mysql year type.
 	MinYear int16 = 1901
 	// MaxYear is the maximum for mysql year type.
@@ -497,6 +498,21 @@ func (t *Time) Check() error {
 	return t.check(nil)
 }
 
+// checkDatetimeRange check datetime, date, or normalized time (i.e. time without days) range.
+func (t *Time) checkDatetimeRange() bool {
+	tt := t.Time
+	// In case of MYSQL_TIMESTAMP_TIME hour value can be up to TIME_MAX_HOUR.
+	// In case of MYSQL_TIMESTAMP_DATETIME it cannot be bigger than 23.
+	if tt.Year() > 9999 || tt.Month() > 12 || tt.Day() > 31 ||
+		tt.Minute() > 59 || tt.Second() > 59 || tt.Microsecond() > 999999 {
+		return true
+	}
+	if t.Type == mysql.TypeTimestamp {
+		return tt.Hour() > TimeMaxHour
+	}
+	return tt.Hour() > 23
+}
+
 // Sub subtracts t1 from t, returns a duration value.
 // Note that sub should not be done on different time types.
 func (t *Time) Sub(t1 *Time) Duration {
@@ -603,6 +619,205 @@ func splitDateTime(format string) (seps []string, fracStr string) {
 
 	seps = ParseDateFormat(format)
 	return
+}
+
+// https://github.com/mysql/mysql-server/blob/23032807537d8dd8ee4ec1c4d40f0633cd4e12f9/sql-common/my_time.c#L270
+func strToDateTime(str string, fsp int) (Time, error) {
+	var (
+		pos              int
+		yearLength       = 4
+		fieldLength      int
+		lastFieldPos     int
+		isInternalFormat bool
+		foundDelimitier  bool
+		foundSpace       bool
+		notZeroDate      bool
+		date             [MaxDateParts]int
+		dateLen          [MaxDateParts]int
+	)
+
+	str = skipWhiteSpace(str)
+	if len(str) == 0 || !unicode.IsDigit(rune(str[0])) {
+		return ZeroDatetime, errors.Trace(ErrIncorrectDatetimeValue.GenByArgs(str))
+	}
+
+	// Calculate number of digits in first part.
+	// If length= 8 or >= 14 then year is of format YYYY.
+	// (YYYY-MM-DD,  YYYYMMDD, YYYYYMMDDHHMMSS)
+	for pos != len(str) && (unicode.IsDigit(rune(str[pos])) || str[pos] == 'T') {
+		pos++
+	}
+
+	if pos == len(str) || str[pos] == '.' {
+		// Found date in internal format (only numbers like YYYYMMDD)
+		if !(pos == 4 || pos == 8 || pos >= 14) {
+			yearLength = 2
+		}
+		fieldLength = yearLength
+		isInternalFormat = true
+	} else {
+		fieldLength = 4
+	}
+	//	uint field_length= 0, year_length= 0, digits, i, number_of_fields;
+	//	uint add_hours= 0, start_loop;
+	//	ulong not_zero_date, allow_space;
+	//	uint frac_pos, frac_len;
+	//
+	//
+	//	digits= (uint) (pos-str);
+	startLoop := 0
+	for pos = 0; startLoop < MaxDateParts-1 && pos != len(str) && unicode.IsDigit(rune(str[pos])); startLoop++ {
+		start := pos
+		tmpValue := 0
+
+		// Internal format means no delimiters; every field has a fixed
+		// width. Otherwise, we scan until we find a delimiter and discard
+		// leading zeroes -- except for the microsecond part, where leading
+		// zeroes are significant, and where we never process more than six
+		// digits.
+		scanUntilDelim := !isInternalFormat && startLoop != 6
+		for pos != len(str) && unicode.IsDigit(rune(str[pos])) && (scanUntilDelim || fieldLength > 0) {
+			tmpValue = tmpValue*10 + int(str[pos]-'0')
+			fieldLength--
+			pos++
+		}
+		dateLen[startLoop] = pos - start
+		// Impossible date part
+		if tmpValue > 999999 {
+			return ZeroDatetime, errors.Trace(ErrIncorrectDatetimeValue.GenByArgs(str))
+		}
+		date[startLoop] = tmpValue
+		notZeroDate = notZeroDate || (tmpValue != 0)
+
+		fieldLength = 2
+		lastFieldPos = pos
+		if pos == len(str) {
+			startLoop++
+			break
+		}
+
+		// Allow a 'T' after day to allow CCYYMMDDT type of fields
+		if startLoop == 2 && str[pos] == 'T' {
+			// ISO8601:  CCYYMMDDThhmmss
+			pos++
+			continue
+		}
+		if startLoop == 5 {
+			// Followed by part seconds
+			if str[pos] == '.' {
+				pos++
+				// Shift last_field_pos, so '2001-01-01 00:00:00.'
+				// is treated as a valid value
+				lastFieldPos = pos
+				fieldLength = 6
+			} else if unicode.IsDigit(rune(str[pos])) {
+				// We do not see a decimal point which would have indicated a
+				// fractional second part in further read. So we skip the further
+				// processing of digits.
+				startLoop++
+				break
+			}
+			continue
+		}
+
+		for pos != len(str) && (unicode.IsPunct(rune(str[pos])) || unicode.IsSpace(rune(str[pos]))) {
+			if unicode.IsSpace(rune(str[pos])) {
+				if startLoop != 2 && startLoop != 6 {
+					return ZeroDatetime, errors.Trace(ErrIncorrectDatetimeValue.GenByArgs(str))
+				}
+				foundSpace = true
+			}
+			pos++
+			foundDelimitier = true
+		}
+
+		// Check if next position is AM/PM
+		if startLoop == 6 {
+			startLoop++
+		}
+		lastFieldPos = pos
+	}
+
+	//	if (found_delimitier && !found_space && (flags & TIME_DATETIME_ONLY))
+	if foundDelimitier && !foundSpace && false {
+		return ZeroDatetime, errors.Trace(ErrIncorrectDatetimeValue.GenByArgs(str))
+	}
+	pos = lastFieldPos
+	numberOfFields := startLoop
+
+	if !isInternalFormat {
+		// Year must be specified
+		yearLength = dateLen[0]
+		if yearLength == 0 {
+			return ZeroDatetime, errors.Trace(ErrIncorrectDatetimeValue.GenByArgs(str))
+		}
+	}
+	if dateLen[6] < 6 {
+		date[6] = date[6] * int(math.Pow10(6-dateLen[6]))
+	}
+
+	if yearLength == 2 && notZeroDate {
+		if date[0] < 70 {
+			date[0] += 2000
+		} else {
+			date[0] += 1900
+		}
+	}
+
+	tmp := FromDate(date[0], date[1], date[2], date[3], date[4], date[5], date[6])
+	nt := Time{
+		Time: tmp,
+		Type: mysql.TypeDatetime,
+		Fsp:  fsp}
+
+	// Set time_type before check_datetime_range(),
+	// as the latter relies on initialized time_type value.
+	if numberOfFields <= 3 {
+		nt.Type = mysql.TypeDate
+	}
+	if numberOfFields < 3 || nt.checkDatetimeRange() {
+		if !notZeroDate {
+			for pos != len(str) {
+				pos++
+				if !unicode.IsSpace(rune(str[pos])) {
+					notZeroDate = true
+					break
+				}
+			}
+		}
+		if notZeroDate {
+			return ZeroDatetime, errors.Trace(ErrIncorrectDatetimeValue.GenByArgs(str))
+		}
+	}
+	//	if (check_date(l_time, not_zero_date != 0, flags, &status->warnings))
+	//	goto err;
+
+	// Scan all digits left after microseconds
+	if dateLen[6] == 6 && pos != len(str) {
+		if unicode.IsDigit(rune(str[pos])) {
+			// We don't need the exact nanoseconds value.
+			// Knowing the first digit is enough for rounding.
+			if int(str[pos]-'0') >= 5 {
+				t1, err := tmp.GoTime(gotime.Local)
+				if err != nil {
+					return ZeroDatetime, errors.Trace(err)
+				}
+				nt.Time = FromGoTime(t1.Add(gotime.Microsecond))
+			}
+			pos++
+			for pos != len(str) && unicode.IsDigit(rune(str[pos])) {
+				pos++
+			}
+		}
+	}
+
+	for pos != len(str) {
+		pos++
+		if !unicode.IsSpace(rune(str[pos])) {
+			break
+		}
+	}
+	return nt, nil
 }
 
 // See https://dev.mysql.com/doc/refman/5.7/en/date-and-time-literals.html.
@@ -1231,18 +1446,26 @@ func ParseTime(sc *stmtctx.StatementContext, str string, tp byte, fst int) (Time
 	return parseTime(sc, str, tp, fst, false)
 }
 
+func StrToTime(sc *stmtctx.StatementContext, str string, tp byte, fst int) (Time, error) {
+	return strToTime(sc, str, tp, fst)
+}
+
 // ParseTimeFromFloatString is similar to ParseTime, except that it's used to parse a float converted string.
 func ParseTimeFromFloatString(sc *stmtctx.StatementContext, str string, tp byte, fst int) (Time, error) {
 	return parseTime(sc, str, tp, fst, true)
 }
 
 func parseTime(sc *stmtctx.StatementContext, str string, tp byte, fsp int, isFloat bool) (Time, error) {
+	return strToTime(sc, str, tp, fsp)
+}
+
+func strToTime(sc *stmtctx.StatementContext, str string, tp byte, fsp int) (Time, error) {
 	fsp, err := CheckFsp(fsp)
 	if err != nil {
 		return Time{Time: ZeroTime, Type: tp}, errors.Trace(err)
 	}
 
-	t, err := parseDatetime(str, fsp, isFloat)
+	t, err := strToDateTime(str, fsp)
 	if err != nil {
 		return Time{Time: ZeroTime, Type: tp}, errors.Trace(err)
 	}
