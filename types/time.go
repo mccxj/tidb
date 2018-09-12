@@ -56,7 +56,7 @@ const (
 	// MaxDuration is the maximum for duration.
 	MaxDuration int64 = 838*10000 + 59*100 + 59
 	// MinTime is the minimum for mysql time type.
-	MinTime = -gotime.Duration(838*3600+59*60+59) * gotime.Second
+	MinTime = -gotime.Duration(838*3600 + 59*60 + 59) * gotime.Second
 	// MaxTime is the maximum for mysql time type.
 	MaxTime = gotime.Duration(838*3600+59*60+59) * gotime.Second
 	// ZeroDatetimeStr is the string representation of a zero datetime.
@@ -598,6 +598,67 @@ func splitDateTime(format string) (seps []string, fracStr string) {
 
 	seps = ParseDateFormat(format)
 	return
+}
+
+const MAX_DATE_PARTS = 8
+
+type ParseFlag int
+
+type TimestampType int
+
+const (
+	MYSQL_TIMESTAMP_NONE     TimestampType = -2
+	MYSQL_TIMESTAMP_ERROR    TimestampType = -1
+	MYSQL_TIMESTAMP_DATE     TimestampType = 0
+	MYSQL_TIMESTAMP_DATETIME TimestampType = 1
+	MYSQL_TIMESTAMP_TIME     TimestampType = 2
+)
+
+const (
+	// Set if we should allow partial dates
+	TIME_FUZZY_DATE ParseFlag = 1
+	// Set if we only allow full datetimes.
+	TIME_DATETIME_ONLY ParseFlag = 2
+	// Don't allow partial dates
+	TIME_NO_ZERO_IN_DATE ParseFlag = 4
+	// Don't allow 0000-00-00 date
+	TIME_NO_ZERO_DATE ParseFlag = 8
+	// Allow 2000-02-31
+	TIME_INVALID_DATES ParseFlag = 16
+)
+
+func strToDatetime(sc *stmtctx.StatementContext, str string, flag ParseFlag) (Time, error) {
+	// Skip space at start
+	str = skipWhiteSpace(str)
+	if len(str) == 0 || !unicode.IsDigit(rune(str[0])) {
+		//status- > warnings = MYSQL_TIME_WARN_TRUNCATED;
+		//l_time- > time_type = MYSQL_TIMESTAMP_NONE;
+		//DBUG_RETURN(1);
+	}
+	// Calculate number of digits in first part.
+	// If length= 8 or >= 14 then year is of format YYYY.
+	// (YYYY-MM-DD,  YYYYMMDD, YYYYYMMDDHHMMSS)
+	pos := 0
+	for pos != len(str) && (unicode.IsDigit(rune(str[pos])) || str[pos] == 'T') {
+		pos += 1
+	}
+	digits:= pos;
+	//start_loop= 0;                                /* Start of scan loop */
+	//date_len[format_position[0]]= 0;              /* Length of year field */
+	year_length := 0
+	if pos == len(str) || str[pos] == '.' {
+		// Found date in internal format (only numbers like YYYYMMDD)
+		if digits == 4 || digits == 8 || digits >= 14 {
+			year_length= 4
+		} else {
+			year_length=2
+		}
+		//field_length= year_length;
+		//is_internal_format= 1;
+		//format_position= internal_format_positions;
+	}
+
+	return ZeroDatetime, nil
 }
 
 // See https://dev.mysql.com/doc/refman/5.7/en/date-and-time-literals.html.
