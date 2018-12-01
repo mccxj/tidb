@@ -46,14 +46,18 @@ type baseVarianceFloat64 struct {
 type partialResult4VarianceFloat64 struct {
 	count    int64
 	sum      float64
-	variance float64 // $$\sum_{k=i}^{j}{(a_k-avg_{ij})^2}$$ (this is actually n times the variance)
+	variance float64 // sum((a[i]-avg)^2) (this is actually n times the variance)
 }
 
+// merge will merge variance.
+// See AggEvaluateContext#CalculateMerge to find the detail of the algorithm.
 func (p *partialResult4VarianceFloat64) merge(count int64, sum float64, variance float64) {
 	if p.count == 0 {
 		p.count, p.sum, p.variance = count, sum, variance
 	} else {
-		variance = types.CalculateMerge(p.count, count, p.sum, sum, p.variance, variance)
+		doublePartialCount, doubleMergeCount := float64(p.count), float64(count)
+		t := (doublePartialCount/doubleMergeCount)*sum - p.sum
+		variance += p.variance + ((doubleMergeCount/doublePartialCount)/(doubleMergeCount+doublePartialCount))*t*t
 		p.count += count
 		p.sum += sum
 		p.variance = variance
@@ -80,7 +84,7 @@ func (e *baseVarianceFloat64) AppendFinalResult2Chunk(sctx sessionctx.Context, p
 		chk.AppendFloat64(e.ordinal, p.variance/float64(p.count))
 	default:
 		// TODO support more population standard deviation/sample variance
-		panic("Not implemented")
+		return errors.New("not implemented")
 	}
 	return nil
 }

@@ -37,7 +37,7 @@ type aggregationPushDownSolver struct {
 func (a *aggregationPushDownSolver) isDecomposable(fun *aggregation.AggFuncDesc) bool {
 	switch fun.Name {
 	case ast.AggFuncAvg, ast.AggFuncGroupConcat, ast.AggFuncVarPop:
-		// TODO: Support avg push down.
+		// TODO: Support avg/group_concat/var_pop push down.
 		return false
 	case ast.AggFuncMax, ast.AggFuncMin, ast.AggFuncFirstRow:
 		return true
